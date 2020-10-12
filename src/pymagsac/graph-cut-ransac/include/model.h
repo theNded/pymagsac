@@ -38,6 +38,11 @@
 #include <Eigen/Eigen>
 #include "estimator.h"
 
+template <typename T>
+T CLAMP(const T& x, const T& min, const T& max) {
+  return std::min(std::max(min, x), max);
+}
+
 namespace gcransac
 {
 	class Model

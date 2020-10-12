@@ -535,7 +535,7 @@ bool MAGSAC<DatumType, ModelEstimator>::sigmaConsensus(
 	bool is_model_updated = false;
 	
 	if (sigma_models.size() == 1 && // If only a single model is estimated
-		estimator_.isValidModel(sigma_models.back(),
+      estimator_.isValidModel(*std::prev(sigma_models.end()),
 			points_,
 			sigma_inliers,
 			&(sigma_inliers)[0],

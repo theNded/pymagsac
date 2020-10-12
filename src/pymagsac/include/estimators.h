@@ -11,6 +11,64 @@ namespace magsac
 		// This is the estimator class for estimating a fundamental matrix between two images. 
 		template<class _MinimalSolverEngine,  // The solver used for estimating the model from a minimal sample
 			class _NonMinimalSolverEngine> // The solver used for estimating the model from a non-minimal sample
+			class HomographyEstimator :
+			public gcransac::estimator::RobustHomographyEstimator<_MinimalSolverEngine, _NonMinimalSolverEngine>
+		{
+		public:
+			HomographyEstimator() :
+				gcransac::estimator::RobustHomographyEstimator<_MinimalSolverEngine, _NonMinimalSolverEngine>()
+			{}
+
+			// Calculating the residual which is used for the MAGSAC score calculation.
+			// Since symmetric epipolar distance is usually more robust than Sampson-error.
+			// we are using it for the score calculation.
+			inline double residualForScoring(const cv::Mat& point_,
+                const gcransac::Model& model_) const
+			{
+				return residual(point_, model_.descriptor);
+			}
+			
+			static constexpr double getSigmaQuantile()
+			{
+				return 3.64;
+			}
+
+			static constexpr size_t getDegreesOfFreedom()
+			{
+				return 4;
+			}
+
+			static constexpr double getC()
+			{
+				return 0.25;
+			}
+
+			// Calculating the upper incomplete gamma value of (DoF - 1) / 2 with k^2 / 2.
+			static constexpr double getGammaFunction()
+			{
+				return 1.0;
+			}
+
+			static constexpr double getUpperIncompleteGammaOfK()
+			{
+				return 0.0036572608340910764;
+			}
+
+			// Calculating the lower incomplete gamma value of (DoF + 1) / 2 with k^2 / 2.
+			static constexpr double getLowerIncompleteGammaOfK()
+			{
+				return 1.3012265540498875;
+			}
+
+			static constexpr double getChiSquareParamCp()
+			{
+				return 1.0 / (4.0 * getGammaFunction());
+			}
+		};
+
+		// This is the estimator class for estimating a fundamental matrix between two images. 
+		template<class _MinimalSolverEngine,  // The solver used for estimating the model from a minimal sample
+			class _NonMinimalSolverEngine> // The solver used for estimating the model from a non-minimal sample
 			class FundamentalMatrixEstimator :
 			public gcransac::estimator::FundamentalMatrixEstimator<_MinimalSolverEngine, _NonMinimalSolverEngine>
 		{
@@ -80,7 +138,7 @@ namespace magsac
 			// robust to degenerate solutions than the symmetric epipolar distance. Therefore,
 			// every so-far-the-best model is checked if it has enough inlier with symmetric
 			// epipolar distance as well. 
-			bool isValidModel(Model& model_,
+			bool isValidModel(gcransac::Model& model_,
 				const cv::Mat& data_,
 				const std::vector<size_t> &inliers_,
 				const size_t *minimal_sample_,
@@ -97,7 +155,7 @@ namespace magsac
 				constexpr size_t sample_size = sampleSize(); // Size of a minimal sample
 				// Minimum number of inliers which should be inlier as well when using symmetric epipolar distance instead of Sampson distance
 				const size_t minimum_inlier_number =
-					MAX(sample_size, inliers_.size() * minimum_inlier_ratio_in_validity_check);
+					MAX(sample_size, inliers_.size() * this->minimum_inlier_ratio_in_validity_check);
 				// Squared inlier-outlier threshold
 				const double squared_threshold = threshold_ * threshold_;
 
@@ -119,7 +177,7 @@ namespace magsac
 					return false;
 				 
 				// Validate the model by checking if the scene is dominated by a single plane.
-				if (use_degensac)
+				if (this->use_degensac)
 					return applyDegensac(model_,
 						data_,
 						inliers_,
@@ -133,7 +191,7 @@ namespace magsac
 			}
 
 			//  Evaluate the H-degenerate sample test and apply DEGENSAC if needed
-			inline bool applyDegensac(Model& model_, // The input model to be tested
+			inline bool applyDegensac(gcransac::Model& model_, // The input model to be tested
 				const cv::Mat& data_, // All data points
 				const std::vector<size_t> &inliers_, // The inliers of the input model
 				const size_t *minimal_sample_, // The minimal sample used for estimating the model
@@ -266,7 +324,7 @@ namespace magsac
 
 						// If the squared re-projection error is smaller than the threshold, 
 						// consider the point inlier.
-						if (squared_residual < squared_homography_threshold)
+						if (squared_residual < this->squared_homography_threshold)
 							++inlier_number;
 					}
 
@@ -298,7 +356,7 @@ namespace magsac
 					// and select those which are inliers of the homography as well.
 					//for (size_t inlier_idx = 0; inlier_idx < data_.rows; ++inlier_idx)
 					for (const size_t &inlier_idx : inliers_)
-						if (homography_estimator.squaredResidual(data_.row(inlier_idx), best_homography) < squared_homography_threshold)
+						if (homography_estimator.squaredResidual(data_.row(inlier_idx), best_homography) < this->squared_homography_threshold)
 							homography_inliers.emplace_back(inlier_idx);
 
 					// If the homography does not have enough inliers to be estimated, terminate.
@@ -307,7 +365,7 @@ namespace magsac
 
 					// The set of estimated homographies. For all implemented solvers,
 					// this should be of size 1.
-					std::vector<Model> homographies;
+					std::vector<gcransac::Model> homographies;
 
 					// Estimate the homography parameters from the provided inliers.
 					homography_estimator.estimateModelNonminimal(data_, // All data points
@@ -332,7 +390,7 @@ namespace magsac
 					estimator.getMinimalSolver()->setHomography(&nonminimal_homography);
 
 					std::vector<int> inliers;
-					Model model;
+          gcransac::Model model;
 
 					MAGSAC<cv::Mat, magsac::estimator::FundamentalMatrixEstimator<
 						gcransac::estimator::solver::FundamentalMatrixPlaneParallaxSolver, // The solver used for fitting a model to a minimal sample
@@ -434,64 +492,7 @@ namespace magsac
 			}
 		};
 
-		// This is the estimator class for estimating a fundamental matrix between two images. 
-		template<class _MinimalSolverEngine,  // The solver used for estimating the model from a minimal sample
-			class _NonMinimalSolverEngine> // The solver used for estimating the model from a non-minimal sample
-			class HomographyEstimator :
-			public gcransac::estimator::RobustHomographyEstimator<_MinimalSolverEngine, _NonMinimalSolverEngine>
-		{
-		public:
-			HomographyEstimator() :
-				gcransac::estimator::RobustHomographyEstimator<_MinimalSolverEngine, _NonMinimalSolverEngine>()
-			{}
-
-			// Calculating the residual which is used for the MAGSAC score calculation.
-			// Since symmetric epipolar distance is usually more robust than Sampson-error.
-			// we are using it for the score calculation.
-			inline double residualForScoring(const cv::Mat& point_,
-                const gcransac::Model& model_) const
-			{
-				return residual(point_, model_.descriptor);
-			}
-			
-			static constexpr double getSigmaQuantile()
-			{
-				return 3.64;
-			}
-
-			static constexpr size_t getDegreesOfFreedom()
-			{
-				return 4;
-			}
-
-			static constexpr double getC()
-			{
-				return 0.25;
-			}
-
-			// Calculating the upper incomplete gamma value of (DoF - 1) / 2 with k^2 / 2.
-			static constexpr double getGammaFunction()
-			{
-				return 1.0;
-			}
-
-			static constexpr double getUpperIncompleteGammaOfK()
-			{
-				return 0.0036572608340910764;
-			}
-
-			// Calculating the lower incomplete gamma value of (DoF + 1) / 2 with k^2 / 2.
-			static constexpr double getLowerIncompleteGammaOfK()
-			{
-				return 1.3012265540498875;
-			}
-
-			static constexpr double getChiSquareParamCp()
-			{
-				return 1.0 / (4.0 * getGammaFunction());
-			}
-		};
-	}
+  }
 
 	namespace utils
 	{
